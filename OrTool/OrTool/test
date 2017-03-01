@@ -1,0 +1,156 @@
+using AssignHouse.Beans;
+using AssignHouse.DB;
+using Google.OrTools.ConstraintSolver;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+
+namespace AssignHouse.Helper
+{
+    public partial class RoomManager
+    {
+        public Dictionary<string, int> GroupRoomCounts = new Dictionary<string, int>();
+        public int GetMinCountOfAssignedUser()
+        {
+            int result = 0;
+            List<ASRule> rules = AssignRules.Where<ASRule>(r => r.Active == true).ToList<ASRule>();
+
+            return result;
+        }
+
+        public void CalRoomCountByRule(ASRule rule)
+        {
+            string[] groups = rule.AssignRule.Split(' ');
+            int result = 0;
+            foreach (string group in groups)
+            {
+                List<Room> rooms = Rooms.FindAll(room => room.AssignGroup == group && room.Assigned == false && !room.Hold);
+                if (rooms.Count == 0) return 0;
+                if (result == 0) result = rooms.Count;
+                else result *= rooms.Count;
+            }
+            return result;
+        }
+
+        private int GetMinValueByRule(ASRule rule)
+        {
+            string[] groups = rule.AssignRule.Split(' ');
+            int result = int.MaxValue;
+            Dictionary<string, int> groupcount = new Dictionary<string, int>();
+            foreach (string group in groups)
+            {
+                if(groupcount.ContainsKey(group))
+                {
+                    groupcount[group]++;
+                }
+                else
+                {
+                    groupcount[group] = 1;
+                }
+            }
+            foreach(string group in groupcount.Keys)
+            {
+                result = Math.Min(result, GroupRoomCounts[group] / groupcount[group]);
+            }
+            return result;
+        }
+
+        private int GetGroupCountByRule(ASRule rule, string bygroup)
+        {
+            string[] groups = rule.AssignRule.Split(' ');
+            int result = 0;
+            foreach (string group in groups)
+            {
+                if (group == bygroup)
+                {
+                    result++;
+                }
+            }
+            return result;
+        }
+
+        private int Test(List<ASRule> rules)
+        {
+            int result = 0;
+            Solver solver = new Solver("AtLeastCount");
+            IntVar r1 = solver.MakeIntVar(0, 60, "R1");
+            IntVar r2 = solver.MakeIntVar(0, 40, "R2");
+            IntVar r3 = solver.MakeIntVar(0, 40, "R3");
+            IntVar r4 = solver.MakeIntVar(0, 40, "R4");
+            IntVar[] rs = new IntVar[rules.Count];
+            for(int i = 0; i < rules.Count; i++)
+            {
+                rs[i] = solver.MakeIntVar(0, GetMinValueByRule(rules[i]));
+            }
+
+            solver.Add(r1 + r3 + r4 <= 100);
+            solver.Add(r1 + r2 + r4 <= 80);
+            solver.Add(r1 + r2 + r3 <= 60);
+            solver.Add(r2 + r3 + r4 <= 40);
+
+            foreach(string group in GroupRoomCounts.Keys)
+            {
+                IntExpr groupConstraint = solver.MakeIntConst(0);
+                for (int i = 0; i < rules.Count; i++)
+                {
+                    int groupcount = GetGroupCountByRule(rules[i], group);
+                    if(groupcount > 0)
+                    {
+                        groupConstraint = groupConstraint + rs[i] * groupcount;
+                    }
+                }
+                solver.Add(groupConstraint <= GroupRoomCounts[group]);
+            }
+
+            //IntVarVector v = new IntVarVector();
+            //v.Add(r1);
+            //v.Add(r2);
+            //v.Add(r3);
+            //v.Add(r4);
+
+            //IntExpr exp = solver.MakeSum(v);
+
+            //solver.Add(exp >= 89);
+            //solver.Add(solver.MakeSumGreaterOrEqual(v, 88));
+
+            IntVar temp1 = solver.MakeGreaterOrEqual(r1 + r3 + r4, 100);
+            IntVar temp2 = solver.MakeGreaterOrEqual(r1 + r2 + r4, 80);
+            IntVar temp3 = solver.MakeGreaterOrEqual(r1 + r2 + r3, 60);
+            solver.Add(temp1 + temp2 + temp3 > 0);
+
+            temp1 = solver.MakeGreaterOrEqual(r1 + r2 + r4, 80);
+            temp2 = solver.MakeGreaterOrEqual(r1 + r2 + r3, 60);
+            temp3 = solver.MakeGreaterOrEqual(r2 + r3 + r4, 40);
+            solver.Add(temp1 + temp2 + temp3 > 0);
+
+            temp1 = solver.MakeGreaterOrEqual(r1 + r3 + r4, 100);
+            temp2 = solver.MakeGreaterOrEqual(r1 + r2 + r3, 60);
+            temp3 = solver.MakeGreaterOrEqual(r2 + r3 + r4, 40);
+            solver.Add(temp1 + temp2 + temp3 > 0);
+
+            temp1 = solver.MakeGreaterOrEqual(r1 + r3 + r4, 100);
+            temp2 = solver.MakeGreaterOrEqual(r1 + r2 + r4, 80);
+            temp3 = solver.MakeGreaterOrEqual(r2 + r3 + r4, 40);
+            solver.Add(temp1 + temp2 + temp3 > 0);
+
+            //IntExpr sum = solver.MakeSum(v);
+            IntVar[] vs = new IntVar[] { r1, r2, r3, r4 };
+            IntVar z = vs.Sum().Var();
+
+            DecisionBuilder db = solver.MakePhase(vs, Solver.INT_VAR_DEFAULT, Solver.INT_VALUE_DEFAULT);
+            //solver.Solve(db, z.Maximize(1));
+            solver.NewSearch(db, z.Maximize(1));
+            while (solver.NextSolution())
+            {
+                Console.WriteLine(vs[0].Value());
+                Console.WriteLine(vs[1].Value());
+                Console.WriteLine(vs[2].Value());
+                Console.WriteLine(vs[3].Value());
+                Console.WriteLine("");
+            }
+            long c = solver.Solutions();
+            Console.WriteLine(c);
+        }
+    }
+}
